@@ -13,11 +13,16 @@ BLUE = (30, 144, 255)
 GREEN = (34, 139, 34)
 YELLOW = (255, 215, 0)
 PURPLE = (128, 0, 128)
+RED = (255, 0, 0)
 
 # Game State
 STATE_START = 0
 STATE_PLAYING = 1
 STATE_GAME_OVER = 2
+
+# Game Mode
+MODE_PVP = 0  # vs Player
+MODE_PVE = 1  # vs AI
 
 class Coin:
     def __init__(self, x, y, value=1):
@@ -30,28 +35,120 @@ class Magnet:
         self.x = x
         self.y = y
         self.radius = 1
-        self.duration = 2
+        self.duration = 3
         
+class Ghost:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.target_player = 0
+        self.move_delay = 2
+        self.moves_counter = 0
+
+    def move(self, players, board):
+        self.moves_counter += 1
+        if self.moves_counter < self.move_delay:
+            return
+        
+        self.moves_counter = 0
+        
+        if random.random() < 0.3:
+            self.target_player = random.randint(0, len(players) - 1)
+        
+        # Get player position
+        target_x, target_y = players[self.target_player].position
+        
+        # Find direction
+        directions = [
+            ('up', -1, 0), ('down', 1, 0), 
+            ('left', 0, -1), ('right', 0, 1)
+        ]
+        random.shuffle(directions)
+        
+        best_dir = None
+        best_dist = float('inf')
+        
+        for dir_name, dx, dy in directions:
+            new_x, new_y = self.x + dx, self.y + dy
+            
+            # Check if valid move
+            if (0 <= new_x < board.size and 0 <= new_y < board.size and 
+                not board.is_obstacle(new_x, new_y)):
+                
+                # Calculate distance to target
+                dist = abs(new_x - target_x) + abs(new_y - target_y)
+                
+                if dist < best_dist:
+                    best_dist = dist
+                    best_dir = (dir_name, dx, dy)
+        
+        # Make the move
+        if best_dir:
+            z, dx, dy = best_dir
+            self.x += dx
+            self.y += dy
+    
+    def check_collision(self, player):
+        return self.x == player.position[0] and self.y == player.position[1]
+    
+    def draw(self, screen, ghost_img):
+        screen.blit(ghost_img, (self.y * TILE_SIZE, self.x * TILE_SIZE))
+
 class Board:
-    def __init__(self, size=BOARD_SIZE, coin_prob=0.3, obstacle_prob=0.08, magnet_prob=0.04):
+    def __init__(self, size=BOARD_SIZE, coin_prob=0.5, magnet_prob=0.02, obstacle_prob=0.85):
         self.size = size
         self.coins = []
         self.obstacles = []
         self.magnets = []
-        self.generate_elements(coin_prob, obstacle_prob, magnet_prob)
+        self.generate_obstacles(obstacle_prob)
+        self.generate_elements(coin_prob, magnet_prob)
 
-    def generate_elements(self, coin_prob, obstacle_prob, magnet_prob):
+    def generate_obstacles(self, obstacle_prob):
+        for i in range(1, (self.size + 1) // 2, 2):
+            for j in range(i, (self.size + 1) // 2):
+                self.obstacles.append((i, j))
+                self.obstacles.append((self.size - i - 1, self.size - j - 1))
+                self.obstacles.append((i, self.size - j - 1))
+                self.obstacles.append((self.size - i - 1, j))
+
+        for i in range(1, (self.size + 1) // 2, 2):
+            for j in range(i, (self.size + 1) // 2):
+                self.obstacles.append((j, i))
+                self.obstacles.append((self.size - j - 1, self.size - i - 1))
+                self.obstacles.append((j, self.size - i - 1))
+                self.obstacles.append((self.size - j - 1, i))
+
+        removed = []
+        middle_tile = (self.size + 1) // 2 if self.size % 2 == 0 else self.size // 2
+        for i in self.obstacles[:]:
+            if i[0] == middle_tile or i[1] == middle_tile:
+                self.obstacles.remove(i)
+                removed.append(i)
+            else:
+                rand_val = random.random()
+                if rand_val < 1 - obstacle_prob:
+                    self.obstacles.remove(i)
+
+        for i in range(min(1, len(removed))):
+            selected = random.choice(removed)
+            self.obstacles.append(selected)
+            removed.remove(selected)
+
+        # Remove duplicates & outmost grid
+        self.obstacles = list(set(self.obstacles))
+        self.obstacles = [pos for pos in self.obstacles if pos[0] != 0 and pos[0] != self.size - 1 and pos[1] != 0 and pos[1] != self.size - 1]
+
+    def generate_elements(self, coin_prob, magnet_prob):
         for i in range(self.size):
             for j in range(self.size):
-                if (i, j) in [(0, 0), (self.size - 1, self.size - 1)]:
+                if (i, j) in self.obstacles or (i, j) in [(0, 0), (self.size - 1, self.size - 1)]:
                     continue
                 rand_val = random.random()
                 if rand_val < magnet_prob:
                     self.magnets.append(Magnet(i, j))
                 elif rand_val < coin_prob + magnet_prob:
                     self.coins.append(Coin(i, j))
-                elif rand_val < coin_prob + magnet_prob + obstacle_prob:
-                    self.obstacles.append((i, j))
+
 
     def is_obstacle(self, x, y):
         return (x, y) in self.obstacles
@@ -99,12 +196,15 @@ class Player:
         self.magnet_active = False
         self.magnet_moves_left = 0
         self.magnet_radius = 1
+        self.lives = 3
 
     def move(self, direction, board):
         x, y = self.position
         dx, dy = 0, 0
-        if direction == 'up': dx = -1
-        elif direction == 'down': dx = 1
+        if direction == 'up': 
+            dx = -1
+        elif direction == 'down': 
+            dx = 1
         elif direction == 'left':
             dy = -1
             self.facing = 'left'
@@ -118,13 +218,13 @@ class Player:
                 return False
             self.position = (new_x, new_y)
             
-            # Check if the player picked up a magnet
+            # Pick up magnet
             if board.is_magnet(new_x, new_y):
                 self.magnet_active = True
-                self.magnet_moves_left = 2
+                self.magnet_moves_left = 3
                 board.remove_magnet(new_x, new_y)
             
-            # Check if the player moved onto a coin
+            # Move onto a coin
             if board.is_coin(new_x, new_y):
                 self.score += 1
                 board.remove_coin(new_x, new_y)
@@ -159,7 +259,6 @@ class Player:
         x, y = self.position
         img = player_img
 
-        # Flip logic depends on default sprite orientation
         if self.symbol == 'A':
             if self.facing == 'left':
                 img = pygame.transform.flip(player_img, True, False)
@@ -173,26 +272,40 @@ class Player:
         if self.magnet_active:
             radius = self.magnet_radius * TILE_SIZE
             center = ((y + 0.5) * TILE_SIZE, (x + 0.5) * TILE_SIZE)
-            # Draw semi-transparent circle
+
             s = pygame.Surface((radius*2, radius*2), pygame.SRCALPHA)
             pygame.draw.circle(s, (128, 0, 128, 75), (radius, radius), radius)
             screen.blit(s, (center[0]-radius, center[1]-radius))
             
-            # Draw remaining moves
             font = pygame.font.SysFont("arial", 20)
             text = font.render(str(self.magnet_moves_left), True, PURPLE)
             text_rect = text.get_rect(center=center)
             screen.blit(text, text_rect)
 
 class HumanPlayer(Player):
-    def __init__(self, symbol, x, y):
+    def __init__(self, symbol, x, y, control_keys=None):
         super().__init__(symbol, x, y)
+        if control_keys is None and symbol == 'A':
+            self.control_keys = {
+                pygame.K_UP: 'up',
+                pygame.K_DOWN: 'down',
+                pygame.K_LEFT: 'left',
+                pygame.K_RIGHT: 'right'
+            }
+        elif control_keys is None and symbol == 'B':
+            self.control_keys = {
+                pygame.K_w: 'up',
+                pygame.K_s: 'down',
+                pygame.K_a: 'left',
+                pygame.K_d: 'right'
+            }
+        else:
+            self.control_keys = control_keys
 
     def get_move(self, keys, board):
-        if keys[pygame.K_UP]: return 'up'
-        elif keys[pygame.K_DOWN]: return 'down'
-        elif keys[pygame.K_LEFT]: return 'left'
-        elif keys[pygame.K_RIGHT]: return 'right'
+        for key, direction in self.control_keys.items():
+            if keys[key]:
+                return direction
         return None
 
 class AIPlayer(Player):
@@ -200,7 +313,6 @@ class AIPlayer(Player):
         super().__init__(symbol, x, y)
         
     def get_move(self, board):
-
         def bfs(start, board, target_types):
             visited = set()
             queue = deque([(start, [])])
@@ -217,7 +329,7 @@ class AIPlayer(Player):
                     found = True
                 
                 if found:
-                    return path  # return path to target
+                    return path
                 
                 for direction, (dx, dy) in {
                     'up': (-1, 0), 'down': (1, 0),
@@ -228,7 +340,7 @@ class AIPlayer(Player):
                         queue.append(((nx, ny), path + [direction]))
             return []
 
-        # First priority: find magnets if not already active
+        # Find Magnet
         if not self.magnet_active:
             path_to_magnet = bfs(self.position, board, ['magnet'])
             if path_to_magnet:
@@ -237,7 +349,7 @@ class AIPlayer(Player):
                     self.facing = next_move
                 return next_move
         
-        # Second priority: find coins
+        # Find coins
         path_to_coin = bfs(self.position, board, ['coin'])
         if path_to_coin:
             next_move = path_to_coin[0]
@@ -245,7 +357,7 @@ class AIPlayer(Player):
                 self.facing = next_move
             return next_move
 
-        # fallback: random move
+        # Random move
         moves = self.available_moves(board)
         if not moves:
             return None
@@ -289,19 +401,29 @@ class Game:
         self.font = pygame.font.SysFont("arial", 36)
         self.small_font = pygame.font.SysFont("arial", 24)
         
-        # Game state
+        # Game state and mode
         self.state = STATE_START
         self.running = True
+        self.losing_player = None
+        self.game_mode = None
         
         # Initialize buttons
         button_width, button_height = 200, 60
         center_x = SCREEN_SIZE // 2
         
-        self.start_button = Button(
+        # Mode selection buttons
+        self.pvp_button = Button(
             center_x - button_width // 2, 
-            SCREEN_SIZE // 2 + 100, 
+            SCREEN_SIZE // 2 + 30, 
             button_width, button_height, 
-            "Start Game", GREEN, (100, 200, 100)
+            "vs Player", BLUE, (100, 100, 200)
+        )
+        
+        self.pve_button = Button(
+            center_x - button_width // 2, 
+            SCREEN_SIZE // 2 + 110, 
+            button_width, button_height, 
+            "vs AI", GREEN, (100, 200, 100)
         )
         
         self.restart_button = Button(
@@ -318,9 +440,10 @@ class Game:
             "Quit", (200, 50, 50), (250, 100, 100)
         )
         
+        self.load_images()
         self.init_game()
 
-        # Load images
+    def load_images(self):
         self.coin_img = pygame.transform.smoothscale(
             pygame.image.load("./asset/coin.png").convert_alpha(), (TILE_SIZE, TILE_SIZE)
         )
@@ -329,6 +452,9 @@ class Game:
         )
         self.magnet_img = pygame.transform.smoothscale(
             pygame.image.load("./asset/magnet.png").convert_alpha(), (TILE_SIZE, TILE_SIZE)
+        )
+        self.ghost_img = pygame.transform.smoothscale(
+            pygame.image.load("./asset/ghost.png").convert_alpha(), (TILE_SIZE, TILE_SIZE)
         )
 
         self.player_base_imgs = {
@@ -342,11 +468,35 @@ class Game:
 
     def init_game(self):
         self.board = Board()
-        player_a = HumanPlayer('A', 0, 0)
-        player_b = AIPlayer('B', BOARD_SIZE - 1, BOARD_SIZE - 1)
+        
+        if self.game_mode == MODE_PVP:
+            # vs Player
+            player_a = HumanPlayer('A', 0, 0) 
+            player_b = HumanPlayer('B', BOARD_SIZE - 1, BOARD_SIZE - 1)
+        else:
+            # vs AI
+            player_a = HumanPlayer('A', 0, 0)
+            player_b = AIPlayer('B', BOARD_SIZE - 1, BOARD_SIZE - 1)
+        
         player_b.facing = 'left'
         self.players = [player_a, player_b]
         self.current_player = 0
+        self.losing_player = None
+        
+        # Ghost
+        while True:
+            ghost_x = random.randint(2, BOARD_SIZE - 3)
+            ghost_y = random.randint(2, BOARD_SIZE - 3)
+            
+            if (not self.board.is_obstacle(ghost_x, ghost_y) and
+                not self.board.is_coin(ghost_x, ghost_y) and
+                not self.board.is_magnet(ghost_x, ghost_y)):
+                break
+                
+        self.ghost = Ghost(ghost_x, ghost_y)
+        
+        self.invulnerable_time = 0
+        self.invulnerable_player = None
 
     def draw_start_screen(self):
         self.screen.fill(WHITE)
@@ -358,10 +508,11 @@ class Game:
         
         # Draw instructions
         instructions = [
-            "Use arrow keys to move",
+            "Use arrow keys (Player 1) or WASD (Player 2) to move",
             "Collect coins to score points",
             "Pick up magnets to attract nearby coins",
-            "Player with most coins wins"
+            "Avoid the ghost",
+            "Select game mode:"
         ]
         
         for i, text in enumerate(instructions):
@@ -369,17 +520,21 @@ class Game:
             text_rect = text_surf.get_rect(center=(SCREEN_SIZE // 2, SCREEN_SIZE // 3 + i * 30))
             self.screen.blit(text_surf, text_rect)
         
-        # Draw start button
+        # Draw mode selection buttons
         mouse_pos = pygame.mouse.get_pos()
-        self.start_button.check_hover(mouse_pos)
-        self.start_button.draw(self.screen, self.font)
+        self.pvp_button.check_hover(mouse_pos)
+        self.pve_button.check_hover(mouse_pos)
+        
+        self.pvp_button.draw(self.screen, self.font)
+        self.pve_button.draw(self.screen, self.font)
         
         # Draw player icons for visual appeal
         if hasattr(self, 'player_imgs'):
             player_a_img = self.player_imgs['A']
             player_b_img = self.player_imgs['B']
-            self.screen.blit(player_a_img, (SCREEN_SIZE // 4 - TILE_SIZE // 2, SCREEN_SIZE // 2))
-            self.screen.blit(pygame.transform.flip(player_b_img, True, False), (3 * SCREEN_SIZE // 4 - TILE_SIZE // 2, SCREEN_SIZE // 2))
+            self.screen.blit(player_a_img, (SCREEN_SIZE // 4 - TILE_SIZE // 2, SCREEN_SIZE // 2 + 100))
+            self.screen.blit(pygame.transform.flip(player_b_img, True, False), 
+                           (3 * SCREEN_SIZE // 4 - TILE_SIZE // 2, SCREEN_SIZE // 2 + 100))
         
     def draw_game_over_screen(self):
         self.screen.fill(WHITE)
@@ -389,28 +544,43 @@ class Game:
         title_rect = title_surf.get_rect(center=(SCREEN_SIZE // 2, SCREEN_SIZE // 6))
         self.screen.blit(title_surf, title_rect)
         
-        # Determine winner
         player_a, player_b = self.players
         
-        if player_a.score > player_b.score:
-            winner_text = "Player A Wins!"
-            winner_color = GREEN
-        elif player_a.score < player_b.score:
-            winner_text = "Player B Wins!"
-            winner_color = YELLOW
-        else:
-            winner_text = "It's a Tie!"
-            winner_color = BLUE
-            
+        # Running out of lives
+        if self.losing_player:
+            if self.losing_player.symbol == 'A':
+                winner_text = "Player B Wins!"
+                winner_color = YELLOW
+            else:
+                winner_text = "Player A Wins!"
+                winner_color = GREEN
+        # All Coins are collected
+        elif len(self.board.coins) == 0:
+            if player_a.score > player_b.score:
+                winner_text = "Player A Wins!"
+                winner_color = GREEN
+            elif player_a.score < player_b.score:
+                winner_text = "Player B Wins!"
+                winner_color = YELLOW
+            else:
+                winner_text = "It's a Tie!"
+                winner_color = BLUE
+        
         # Display winner
         winner_surf = self.title_font.render(winner_text, True, winner_color)
         winner_rect = winner_surf.get_rect(center=(SCREEN_SIZE // 2, SCREEN_SIZE // 3)) 
         self.screen.blit(winner_surf, winner_rect)
         
-        # Display scores
+        if self.losing_player:
+            reason = f"Player {self.losing_player.symbol} ran out of lives!"
+            reason_surf = self.font.render(reason, True, RED)
+            reason_rect = reason_surf.get_rect(center=(SCREEN_SIZE // 2, SCREEN_SIZE // 2.3))
+            self.screen.blit(reason_surf, reason_rect)
+        
+        # Display scores and lives
         score_texts = [
-            f"Player A Score: {player_a.score}",
-            f"Player B Score: {player_b.score}"
+            f"Player A Score: {player_a.score} (Lives: {player_a.lives})",
+            f"Player B Score: {player_b.score} (Lives: {player_b.lives})"
         ]
         
         for i, text in enumerate(score_texts):
@@ -437,24 +607,45 @@ class Game:
     def draw_playing_screen(self):
         self.screen.fill(WHITE)
         self.board.draw(self.screen, self.coin_img, self.obstacle_img, self.magnet_img)
+        
+        self.ghost.draw(self.screen, self.ghost_img)
+        
+        # Draw players
         for p in self.players:
-            p.draw(self.screen, self.player_imgs[p.symbol])
+            # Make player blink when invulnerable
+            if p == self.invulnerable_player:
+                if (pygame.time.get_ticks() // 200) % 2 == 0:  # Blink every 200ms
+                    p.draw(self.screen, self.player_imgs[p.symbol])
+            else:
+                p.draw(self.screen, self.player_imgs[p.symbol])
             
-        # Draw scores at the top
         player_a, player_b = self.players
         
         # Show magnet status in the score display
         magnet_a_text = f" [MAGNET: {player_a.magnet_moves_left}]" if player_a.magnet_active else ""
         magnet_b_text = f" [MAGNET: {player_b.magnet_moves_left}]" if player_b.magnet_active else ""
         
-        score_a = self.small_font.render(f"Player A: {player_a.score}{magnet_a_text}", True, BLACK)
-        score_b = self.small_font.render(f"Player B: {player_b.score}{magnet_b_text}", True, BLACK)
+        score_a = self.small_font.render(f"Player A: {player_a.score}{magnet_a_text} Lives: {player_a.lives}", True, BLACK)
+        score_b = self.small_font.render(f"Player B: {player_b.score}{magnet_b_text} Lives: {player_b.lives}", True, BLACK)
         
         self.screen.blit(score_a, (10, SCREEN_SIZE))
         self.screen.blit(score_b, (SCREEN_SIZE - score_b.get_width() - 10, SCREEN_SIZE))
+        
+        current = self.small_font.render(f"Player {self.players[self.current_player].symbol}'s Turn", True, BLUE)
+        current_rect = current.get_rect(center=(SCREEN_SIZE // 2, SCREEN_SIZE + 15))
+        self.screen.blit(current, current_rect)
 
     def check_game_end(self):
-        return len(self.board.coins) == 0
+        if len(self.board.coins) == 0:
+            return True
+        
+        # Runs out of lives
+        for player in self.players:
+            if player.lives <= 0:
+                self.losing_player = player
+                return True
+                
+        return False
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -465,7 +656,13 @@ class Game:
                 pos = pygame.mouse.get_pos()
                 
                 if self.state == STATE_START:
-                    if self.start_button.is_clicked(pos):
+                    if self.pvp_button.is_clicked(pos):
+                        self.game_mode = MODE_PVP
+                        self.init_game()
+                        self.state = STATE_PLAYING
+                    elif self.pve_button.is_clicked(pos):
+                        self.game_mode = MODE_PVE
+                        self.init_game()
                         self.state = STATE_PLAYING
                         
                 elif self.state == STATE_GAME_OVER:
@@ -475,8 +672,31 @@ class Game:
                     elif self.quit_button.is_clicked(pos):
                         self.running = False
 
+    def handle_ghost_collision(self):
+        # Check if ghost collided with a player
+        for player in self.players:
+            if (self.ghost.check_collision(player) and 
+                player != self.invulnerable_player):
+                player.lives -= 1
+                self.invulnerable_player = player
+                self.invulnerable_time = pygame.time.get_ticks()
+                
+                # Move player back to starting position
+                if player.symbol == 'A':
+                    player.position = (0, 0)
+                else:
+                    player.position = (BOARD_SIZE - 1, BOARD_SIZE - 1)
+                    player.facing = 'left'
+                
+                # Check if player lost all lives
+                if player.lives <= 0:
+                    self.losing_player = player
+
     def update(self):
         if self.state == STATE_PLAYING:
+            if self.invulnerable_player and pygame.time.get_ticks() - self.invulnerable_time > 3000:  # 3 seconds of invulnerability
+                self.invulnerable_player = None
+                
             player = self.players[self.current_player]
             
             if isinstance(player, HumanPlayer):
@@ -489,6 +709,11 @@ class Game:
             if move:
                 moved = player.move(move, self.board)
                 if moved:
+                    # Move ghost
+                    self.ghost.move(self.players, self.board)
+                    self.handle_ghost_collision()
+                    
+                    # Switch to other player's turn
                     self.current_player = 1 - self.current_player
 
             if self.check_game_end():
