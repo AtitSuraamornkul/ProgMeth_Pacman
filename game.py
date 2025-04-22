@@ -294,11 +294,12 @@ class Game:
         for player in self.players:
             if (self.ghost.check_collision(player) and 
                 player != self.invulnerable_player):
-                player.lives -= 1
+                # Use the proper method instead of direct attribute access
+                remaining_lives = player.decrease_life()
                 self.invulnerable_player = player
                 self.invulnerable_time = pygame.time.get_ticks()
                 
-                # Move player back to starting position
+                # Use property setter
                 if player.symbol == 'A':
                     player.position = (0, 0)
                 else:
@@ -306,7 +307,7 @@ class Game:
                     player.facing = 'left'
                 
                 # Check if player lost all lives
-                if player.lives <= 0:
+                if remaining_lives <= 0:
                     self.losing_player = player
 
     def update(self):

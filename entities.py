@@ -6,16 +6,84 @@ from constants import BOARD_SIZE, TILE_SIZE, PURPLE
 class Player:
     def __init__(self, symbol, x, y):
         self.symbol = symbol
-        self.position = (x, y)
-        self.score = 0
-        self.facing = 'right'
-        self.magnet_active = False
-        self.magnet_moves_left = 0
-        self.magnet_radius = 1
-        self.lives = 3
+        self._position = (x, y)  # Protected attribute
+        self._score = 0  # Protected attribute
+        self._facing = 'right'  # Protected attribute
+        self._magnet_active = False  # Protected attribute
+        self._magnet_moves_left = 0  # Protected attribute
+        self._magnet_radius = 1  # Protected attribute
+        self.__lives = 3  # Private attribute
+
+    @property
+    def position(self):
+        return self._position
+    
+    @position.setter
+    def position(self, new_position):
+        x, y = new_position
+        if not isinstance(x, int) or not isinstance(y, int):
+            raise ValueError("Position coordinates must be integers")
+        self._position = (x, y)
+    
+    @property
+    def score(self):
+        return self._score
+    
+    @score.setter
+    def score(self, value):
+        if not isinstance(value, int) or value < 0:
+            raise ValueError("Score must be a non-negative integer")
+        self._score = value
+    
+    @property
+    def facing(self):
+        return self._facing
+    
+    @facing.setter
+    def facing(self, direction):
+        valid_directions = ['left', 'right']
+        if direction not in valid_directions:
+            raise ValueError(f"Direction must be one of {valid_directions}")
+        self._facing = direction
+    
+    @property
+    def magnet_active(self):
+        return self._magnet_active
+    
+    @magnet_active.setter
+    def magnet_active(self, status):
+        self._magnet_active = bool(status)
+    
+    @property
+    def magnet_moves_left(self):
+        return self._magnet_moves_left
+    
+    @magnet_moves_left.setter
+    def magnet_moves_left(self, moves):
+        if not isinstance(moves, int) or moves < 0:
+            raise ValueError("Magnet moves must be a non-negative integer")
+        self._magnet_moves_left = moves
+        
+        # Automatically update magnet_active status
+        if moves <= 0:
+            self._magnet_active = False
+    
+    @property
+    def lives(self):
+        return self.__lives
+    
+    def decrease_life(self):
+        self.__lives -= 1
+        return self.__lives
+    
+    def add_life(self, amount=1):
+        if not isinstance(amount, int) or amount <= 0:
+            raise ValueError("Life amount must be a positive integer")
+        self.__lives += amount
+        return self.__lives
 
     def move(self, direction, board):
-        x, y = self.position
+        x, y = self._position
         dx, dy = 0, 0
         if direction == 'up': 
             dx = -1
@@ -23,35 +91,35 @@ class Player:
             dx = 1
         elif direction == 'left':
             dy = -1
-            self.facing = 'left'
+            self._facing = 'left'
         elif direction == 'right':
             dy = 1
-            self.facing = 'right'
+            self._facing = 'right'
         new_x, new_y = x + dx, y + dy
         
         if 0 <= new_x < board.size and 0 <= new_y < board.size:
             if board.is_obstacle(new_x, new_y):
                 return False
-            self.position = (new_x, new_y)
+            self._position = (new_x, new_y)
             
             # Pick up magnet
             if board.is_magnet(new_x, new_y):
-                self.magnet_active = True
-                self.magnet_moves_left = 3
+                self._magnet_active = True
+                self._magnet_moves_left = 3
                 board.remove_magnet(new_x, new_y)
             
             # Move onto a coin
             if board.is_coin(new_x, new_y):
-                self.score += 1
+                self._score += 1
                 board.remove_coin(new_x, new_y)
             
-            if self.magnet_active:
-                collected_coins = board.collect_coins_in_radius(new_x, new_y, self.magnet_radius)
-                self.score += len(collected_coins)
+            if self._magnet_active:
+                collected_coins = board.collect_coins_in_radius(new_x, new_y, self._magnet_radius)
+                self._score += len(collected_coins)
                 
-                self.magnet_moves_left -= 1
-                if self.magnet_moves_left <= 0:
-                    self.magnet_active = False
+                self._magnet_moves_left -= 1
+                if self._magnet_moves_left <= 0:
+                    self._magnet_active = False
             
             return True
         return False
@@ -59,7 +127,7 @@ class Player:
     def available_moves(self, board):
         moves = []
         for direction in ['up', 'down', 'left', 'right']:
-            x, y = self.position
+            x, y = self._position
             dx, dy = 0, 0
             if direction == 'up': dx = -1
             elif direction == 'down': dx = 1
@@ -72,21 +140,21 @@ class Player:
         return moves
 
     def draw(self, screen, player_img):
-        x, y = self.position
+        x, y = self._position
         img = player_img
 
         if self.symbol == 'A':
-            if self.facing == 'left':
+            if self._facing == 'left':
                 img = pygame.transform.flip(player_img, True, False)
         elif self.symbol == 'B':
-            if self.facing == 'right':
+            if self._facing == 'right':
                 img = pygame.transform.flip(player_img, True, False)
 
         screen.blit(img, (y * TILE_SIZE, x * TILE_SIZE))
         
         # Draw magnet effect radius when active
-        if self.magnet_active:
-            radius = self.magnet_radius * TILE_SIZE
+        if self._magnet_active:
+            radius = self._magnet_radius * TILE_SIZE
             center = ((y + 0.5) * TILE_SIZE, (x + 0.5) * TILE_SIZE)
 
             s = pygame.Surface((radius*2, radius*2), pygame.SRCALPHA)
@@ -94,7 +162,7 @@ class Player:
             screen.blit(s, (center[0]-radius, center[1]-radius))
             
             font = pygame.font.SysFont("arial", 20)
-            text = font.render(str(self.magnet_moves_left), True, PURPLE)
+            text = font.render(str(self._magnet_moves_left), True, PURPLE)
             text_rect = text.get_rect(center=center)
             screen.blit(text, text_rect)
 
