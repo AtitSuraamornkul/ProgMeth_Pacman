@@ -12,11 +12,12 @@ class Game:
         self.screen = pygame.display.set_mode((SCREEN_SIZE, SCREEN_SIZE+30))
         pygame.display.set_caption("PACMAN GAME")
         self.clock = pygame.time.Clock()
+        self.load_music()
         
         # Initialize fonts
-        self.title_font = pygame.font.SysFont("arial", 48, bold=True)
-        self.font = pygame.font.SysFont("arial", 36)
-        self.small_font = pygame.font.SysFont("arial", 24)
+        self.title_font = pygame.font.SysFont("asset/Blockblueprint-LV7z5.ttf", 48, bold=True)
+        self.font = pygame.font.SysFont("asset/Blockblueprint-LV7z5.ttf", 36)
+        self.small_font = pygame.font.SysFont("asset/Blockblueprint-LV7z5.ttf", 24)
         
         # Game state and mode
         self.state = STATE_START
@@ -59,6 +60,13 @@ class Game:
         
         self.load_images()
         self.init_game()
+
+    def load_music(self):
+        pygame.mixer.init()
+        music_path = os.path.join(ASSET_PATH, "pookatori-and-friends-kevin-macleod-main-version-24903-04-07.mp3")
+        pygame.mixer.music.load(music_path)
+        pygame.mixer.music.set_volume(0.5)  # Set volume (0.0 to 1.0)
+        pygame.mixer.music.play(-1)  # Loop indefinitely
 
     def load_images(self):
         self.coin_img = pygame.transform.smoothscale(
@@ -149,9 +157,9 @@ class Game:
         if hasattr(self, 'player_imgs'):
             player_a_img = self.player_imgs['A']
             player_b_img = self.player_imgs['B']
-            self.screen.blit(player_a_img, (SCREEN_SIZE // 4 - TILE_SIZE // 2, SCREEN_SIZE // 2 + 100))
+            self.screen.blit(player_a_img, (SCREEN_SIZE // 4 - TILE_SIZE // 2, SCREEN_SIZE // 2 + 200))
             self.screen.blit(pygame.transform.flip(player_b_img, True, False), 
-                           (3 * SCREEN_SIZE // 4 - TILE_SIZE // 2, SCREEN_SIZE // 2 + 100))
+                           (3 * SCREEN_SIZE // 4 - TILE_SIZE // 2, SCREEN_SIZE // 2 + 200))
         
     def draw_game_over_screen(self):
         self.screen.fill(WHITE)

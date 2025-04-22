@@ -16,7 +16,7 @@ class Magnet:
         self.duration = 3
 
 class Board:
-    def __init__(self, size=BOARD_SIZE, coin_prob=0.5, magnet_prob=0.02, obstacle_prob=0.85):
+    def __init__(self, size=BOARD_SIZE, coin_prob=0.5, magnet_prob=0.1, obstacle_prob=0.85):
         self.size = size
         self.coins = []
         self.obstacles = []
